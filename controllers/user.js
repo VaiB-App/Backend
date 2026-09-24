@@ -8,7 +8,7 @@ import { Request } from "../models/request.js";
 
 
 import { User } from '../models/user.js';
-import { Chat } from '../models/chat.js';
+import { Chat } from '../models/Chat.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 

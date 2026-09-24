@@ -20,7 +20,7 @@ import {
 import { isAuthenticated } from "../middlewares/auth.js";
 import { singleAvatar } from "../middlewares/multer.js";
 import { User } from "../models/user.js";
-import { Chat } from "../models/chat.js";
+import { Chat } from "../models/Chat.js";
 import { blockUser, unblockUser, getBlockedUsers } from '../controllers/user.js';
 
 const app = express.Router();

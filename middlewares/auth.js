@@ -1,11 +1,12 @@
 import jwt from "jsonwebtoken";
 import { ErrorHandler } from "../utils/utility.js";
-import { adminSecretKey } from "../app.js";
 import { TryCatch } from "./error.js";
 import { CHATTU_TOKEN } from "../constants/config.js";
 import { User } from "../models/user.js";
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+
+const adminSecretKey = process.env.ADMIN_SECRET_KEY || "adsasdsdfsdfd";
 
 const isAuthenticated = TryCatch((req, res, next) => {
   const token = req.cookies[CHATTU_TOKEN];

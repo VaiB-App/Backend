@@ -1,4 +1,4 @@
-import { envMode } from "../app.js";
+const envMode = process.env.NODE_ENV?.trim() || "PRODUCTION";
 
 const errorMiddleware = (err, req, res, next) => {
   err.message ||= "Internal Server Error";

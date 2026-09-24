@@ -30,6 +30,7 @@ import {
   USER_BLOCKED_FOR_INAPPROPRIATE,
 } from "./constants/events.js"
 import { getSockets } from "./lib/helper.js"
+import { userSocketIDs } from "./lib/socketState.js"
 import { Message } from "./models/message.js"
 import { corsOptions } from "./constants/config.js"
 import { socketAuthenticator } from "./middlewares/auth.js"
@@ -56,7 +57,6 @@ const mongoURI = process.env.MONGO_URI
 const port = process.env.PORT || 3000
 const envMode = process.env.NODE_ENV?.trim() || "PRODUCTION"
 const adminSecretKey = process.env.ADMIN_SECRET_KEY || "adsasdsdfsdfsdfd"
-const userSocketIDs = new Map()
 const onlineUsers = new Set()
 
 // Helper function to find socket by user ID - Fixed to handle undefined/null userId
