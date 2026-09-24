@@ -1,6 +1,6 @@
 const corsOptions = {
   origin: [
-    "http://localhost:5173",
+    "https://frontend-hazel-rho-51.vercel.app",
     
     process.env.CLIENT_URL,
   ],
