@@ -1,5 +1,5 @@
 import { faker, simpleFaker } from "@faker-js/faker";
-import { Chat } from "../models/Chat.js";
+import { Chat } from "../models/chat.js";
 import { Message } from "../models/message.js";
 import { User } from "../models/user.js";
 

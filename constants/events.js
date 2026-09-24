@@ -18,8 +18,7 @@ const ONLINE_USERS = "ONLINE_USERS";
  const INAPPROPRIATE_MESSAGE = "inappropriate-message"
 
 const MESSAGE_BLOCKED = "message-blocked";
- const USER_BLOCKED = "user_blocked";
- const USER_UNBLOCKED = "user_unblocked";
+
   const SPAM_DETECTED = "spam-detected";
    const BLOCK_USER = "block-user";
    const REPLY_MESSAGE = "reply-message"
@@ -30,6 +29,16 @@ export const CALL_ANSWERED = "call-answered"
 export const CALL_REJECTED = "call-rejected"
 export const ICE_CANDIDATE = "ice-candidate"
 export const END_CALL = "end-call"
+
+export const UNBLOCK_USER = "unblock-user"
+export const GET_BLOCKED_USERS = "get-blocked-users"
+export const USER_BLOCKED = "user-blocked"
+export const USER_UNBLOCKED = "user-unblocked"
+export const MESSAGE_FROM_BLOCKED_USER = "message-from-blocked-user"
+
+// New events for inappropriate content
+export const INAPPROPRIATE_CONTENT_DETECTED = "inappropriate-content-detected"
+export const USER_BLOCKED_FOR_INAPPROPRIATE = "user-blocked-for-inappropriate"
 
 export {
   MESSAGE_BLOCKED,
@@ -45,8 +54,7 @@ export {
   CHAT_JOINED,
   CHAT_LEAVED,
   ONLINE_USERS,
-  USER_BLOCKED,
-USER_UNBLOCKED,
+ 
 SPAM_DETECTED,
 BLOCK_USER,
 REPLY_MESSAGE

@@ -1,6 +1,6 @@
 import { TryCatch } from "../middlewares/error.js";
 import { ErrorHandler } from "../utils/utility.js";
-import { Chat } from "../models/Chat.js";
+import { Chat } from "../models/chat.js";
 import {
   deletFilesFromCloudinary,
   emitEvent,
@@ -407,6 +407,103 @@ const getMessages = TryCatch(async (req, res, next) => {
   });
 });
 
+
+
+
+const handleBlockUser = async (userId, blockedUserId) => {
+  try {
+    // Find the user
+    const user = await User.findById(userId)
+    if (!user) {
+      throw new Error("User not found")
+    }
+
+    // Check if user is already blocked
+    if (user.blockedUsers.includes(blockedUserId)) {
+      return { success: true, message: "User is already blocked" }
+    }
+
+    // Add to blocked users array
+    user.blockedUsers.push(blockedUserId)
+    await user.save()
+
+    // Get blocked user details to return
+    const blockedUser = await User.findById(blockedUserId, "name email avatar")
+
+    return {
+      success: true,
+      message: "User blocked successfully",
+      blockedUser,
+    }
+  } catch (error) {
+    console.error("Error blocking user:", error)
+    return { success: false, message: error.message }
+  }
+}
+
+const handleUnblockUser = async (userId, blockedUserId) => {
+  try {
+    if (!userId || !blockedUserId) {
+      throw new Error("Missing userId or blockedUserId");
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    user.blockedUsers = user.blockedUsers.filter((id) => {
+      if (!id) {
+        console.warn("Null or invalid ID found in blockedUsers:", id);
+        return true; // keep it to avoid breaking the rest
+      }
+
+      return id.toString() !== blockedUserId.toString();
+    });
+
+    await user.save();
+
+    return { success: true, message: "User unblocked successfully" };
+  } catch (error) {
+    console.error("Error unblocking user:", error);
+    return { success: false, message: error.message };
+  }
+};
+
+const getBlockedUsers = async (userId) => {
+  try {
+    // Find the user and populate blocked users
+    const user = await User.findById(userId).populate("blockedUsers", "name email avatar")
+    if (!user) {
+      throw new Error("User not found")
+    }
+
+    return {
+      success: true,
+      blockedUsers: user.blockedUsers || [],
+    }
+  } catch (error) {
+    console.error("Error getting blocked users:", error)
+    return { success: false, message: error.message, blockedUsers: [] }
+  }
+}
+
+// Check if a user is blocked
+const isUserBlocked = async (userId, targetUserId) => {
+  try {
+    const user = await User.findById(userId)
+    if (!user) return false
+
+    return user.blockedUsers.includes(targetUserId)
+  } catch (error) {
+    console.error("Error checking if user is blocked:", error)
+    return false
+  }
+}
+
+
+
+
 export {
   newGroupChat,
   getMyChats,
@@ -419,4 +516,8 @@ export {
   renameGroup,
   deleteChat,
   getMessages,
+  handleBlockUser,
+  handleUnblockUser,
+  getBlockedUsers,
+  isUserBlocked,
 };

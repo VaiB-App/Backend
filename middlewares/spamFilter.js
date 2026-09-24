@@ -6,6 +6,7 @@ import { Message } from "../models/message.js"
 // Spam detection configuration
 const SPAM_KEYWORDS = [
   "buy now",
+  "offer",
   "limited time offer",
   "discount",
   "sale",
@@ -29,9 +30,9 @@ const SPAM_KEYWORDS = [
 ]
 
 // Frequency thresholds
-const MESSAGE_FREQUENCY_THRESHOLD = 5 // messages per minute
+const MESSAGE_FREQUENCY_THRESHOLD = 100 // messages per minute
 const SIMILAR_MESSAGE_THRESHOLD = 3 // similar messages in a short period
-const TIME_WINDOW_MINUTES = 5
+const TIME_WINDOW_MINUTES = 1
 
 // Cache for recent messages to detect frequency
 const recentMessages = new Map() // userId -> array of timestamps
@@ -176,7 +177,7 @@ export const checkUserSpamHistory = async (userId) => {
       isSpam: true,
     })
 
-    return spamReportCount >= 3 // Consider spam history if 3+ reports
+    return spamReportCount >= 300 // Consider spam history if 3+ reports
   } catch (error) {
     console.error("Error checking user spam history:", error)
     return false
