@@ -23,13 +23,6 @@ const MESSAGE_BLOCKED = "message-blocked";
    const BLOCK_USER = "block-user";
    const REPLY_MESSAGE = "reply-message"
 
-   export const CALL_USER = "call-user"
-export const INCOMING_CALL = "incoming-call"
-export const CALL_ANSWERED = "call-answered"
-export const CALL_REJECTED = "call-rejected"
-export const ICE_CANDIDATE = "ice-candidate"
-export const END_CALL = "end-call"
-
 export const UNBLOCK_USER = "unblock-user"
 export const GET_BLOCKED_USERS = "get-blocked-users"
 export const USER_BLOCKED = "user-blocked"
