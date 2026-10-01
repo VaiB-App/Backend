@@ -57,6 +57,8 @@ const mongoURI = process.env.MONGO_URI
 const port = process.env.PORT || 3000
 const envMode = process.env.NODE_ENV?.trim() || "PRODUCTION"
 const adminSecretKey = process.env.ADMIN_SECRET_KEY || "adsasdsdfsdfsdfd"
+const userSocketIDs = new Map()
+const userSocketIDSets = new Map()
 const onlineUsers = new Set()
 
 // Helper function to find socket by user ID - Fixed to handle undefined/null userId
@@ -111,7 +113,11 @@ io.use((socket, next) => {
 
 io.on("connection", (socket) => {
   const user = socket.user
-  userSocketIDs.set(user._id.toString(), socket.id)
+  const userId = user._id.toString()
+  userSocketIDs.set(userId, socket.id)
+  const activeSocketIds = userSocketIDSets.get(userId) || new Set()
+  activeSocketIds.add(socket.id)
+  userSocketIDSets.set(userId, activeSocketIds)
 
   // Handle reply messages
   socket.on(REPLY_MESSAGE, async ({ chatId, members, message, replyToId, replyToSender, replyToContent }) => {
@@ -501,7 +507,7 @@ io.on("connection", (socket) => {
   socket.on(START_TYPING, ({ members, chatId }) => {
     try {
       const membersSockets = getSockets(members)
-      socket.to(membersSockets).emit(START_TYPING, { chatId })
+      socket.to(membersSockets).emit(START_TYPING, { chatId, senderId: user._id.toString() })
     } catch (error) {
       console.error("Error in START_TYPING event:", error)
     }
@@ -510,7 +516,7 @@ io.on("connection", (socket) => {
   socket.on(STOP_TYPING, ({ members, chatId }) => {
     try {
       const membersSockets = getSockets(members)
-      socket.to(membersSockets).emit(STOP_TYPING, { chatId })
+      socket.to(membersSockets).emit(STOP_TYPING, { chatId, senderId: user._id.toString() })
     } catch (error) {
       console.error("Error in STOP_TYPING event:", error)
     }
@@ -658,8 +664,16 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     try {
-      userSocketIDs.delete(user._id.toString())
-      onlineUsers.delete(user._id.toString())
+      const userId = user._id.toString()
+      const activeSocketIds = userSocketIDSets.get(userId)
+      activeSocketIds?.delete(socket.id)
+      if (activeSocketIds?.size) {
+        userSocketIDs.set(userId, activeSocketIds.values().next().value)
+      } else {
+        userSocketIDSets.delete(userId)
+        userSocketIDs.delete(userId)
+        onlineUsers.delete(userId)
+      }
       socket.broadcast.emit(ONLINE_USERS, Array.from(onlineUsers))
     } catch (error) {
       console.error("Error in disconnect event:", error)
@@ -707,4 +721,4 @@ server.listen(port, () => {
   console.log(`Server is running on port ${port} in ${envMode} Mode`)
 })
 
-export { envMode, adminSecretKey, userSocketIDs }
+export { envMode, adminSecretKey, userSocketIDs, userSocketIDSets }
