@@ -30,8 +30,9 @@ import {
   USER_BLOCKED_FOR_INAPPROPRIATE,
 } from "./constants/events.js"
 import { getSockets } from "./lib/helper.js"
-import { userSocketIDs } from "./lib/socketState.js"
+import { userSocketIDs, userSocketIDSets } from "./lib/socketState.js"
 import { Message } from "./models/message.js"
+import { Chat } from "./models/chat.js"
 import { corsOptions } from "./constants/config.js"
 import { socketAuthenticator } from "./middlewares/auth.js"
 import { checkSpamContent, analyzeImageForSpam, blockUser, checkUserSpamHistory } from "./middlewares/spamFilter.js"
@@ -47,7 +48,6 @@ import userRoute from "./routes/user.js"
 import chatRoute from "./routes/chat.js"
 import adminRoute from "./routes/admin.js"
 
-import { WebRTCService } from "./services/webrtc.js"
 
 dotenv.config({
   path: "./.env",
@@ -57,9 +57,8 @@ const mongoURI = process.env.MONGO_URI
 const port = process.env.PORT || 3000
 const envMode = process.env.NODE_ENV?.trim() || "PRODUCTION"
 const adminSecretKey = process.env.ADMIN_SECRET_KEY || "adsasdsdfsdfsdfd"
-const userSocketIDs = new Map()
-const userSocketIDSets = new Map()
 const onlineUsers = new Set()
+const callSessions = new Map()
 
 // Helper function to find socket by user ID - Fixed to handle undefined/null userId
 const findSocketByUserId = (userId) => {
@@ -89,10 +88,6 @@ const io = new Server(server, {
 })
 
 app.set("io", io)
-
-// After initializing your Socket.io server:
-// Initialize the WebRTC service with the Socket.io instance
-const webRTCService = new WebRTCService(io)
 
 // Using Middlewares Here
 app.use(express.json())
@@ -597,71 +592,92 @@ io.on("connection", (socket) => {
     }
   })
 
-  // ZEGOCLOUD call handlers
-  socket.on("zego-call-request", (data) => {
+  // Call invitations and WebRTC signaling are relayed through Socket.IO.
+  socket.on("call:request", async (data = {}) => {
+    const callId = String(data.callId || "")
+    const recipientId = String(data.to || "")
+    const chatId = String(data.chatId || "")
+    const callerId = user._id.toString()
+    if (!callId || !recipientId || !chatId || recipientId === callerId || callSessions.has(callId)) return
+
     try {
-      if (!data || !data.to) {
-        console.warn("Invalid data in zego-call-request:", data)
+      const chat = await Chat.findOne({
+        _id: chatId,
+        members: { $all: [user._id, recipientId] },
+        groupChat: false,
+      }).select("_id")
+      const recipientSocketId = userSocketIDs.get(recipientId)
+      if (!chat || !recipientSocketId || !io.sockets.sockets.has(recipientSocketId)) {
+        socket.emit("call:reject", { callId, reason: "offline" })
         return
       }
-      
-      const recipientSocket = findSocketByUserId(data.to)
-      if (recipientSocket) {
-        recipientSocket.emit("zego-call-request", data)
+
+      const session = {
+        callId,
+        chatId,
+        callerId,
+        calleeId: recipientId,
+        callerSocketId: socket.id,
+        calleeSocketId: recipientSocketId,
+        status: "ringing",
+        timeout: null,
       }
+      callSessions.set(callId, session)
+      session.timeout = setTimeout(() => {
+        if (callSessions.get(callId) !== session || session.status !== "ringing") return
+        callSessions.delete(callId)
+        io.to(session.callerSocketId).emit("call:end", { callId, reason: "timeout" })
+        io.to(session.calleeSocketId).emit("call:end", { callId, reason: "timeout" })
+      }, 60000)
+
+      io.to(recipientSocketId).emit("call:request", {
+        callId,
+        chatId,
+        from: callerId,
+        fromName: user.name,
+        isVideo: Boolean(data.isVideo),
+      })
     } catch (error) {
-      console.error("Error in zego-call-request event:", error)
+      console.error("Could not start call", error)
+      socket.emit("call:reject", { callId, reason: "unavailable" })
     }
   })
 
-  socket.on("zego-call-accepted", (data) => {
-    try {
-      if (!data || !data.to) {
-        console.warn("Invalid data in zego-call-accepted:", data)
+  const forwardCallEvent = (event, getPayload) => {
+    socket.on(event, (data = {}) => {
+      const session = callSessions.get(String(data.callId || ""))
+      if (!session) return
+
+      const fromCaller = session.callerSocketId === socket.id
+      const fromCallee = session.calleeSocketId === socket.id
+      if (!fromCaller && !fromCallee) return
+      const peerId = fromCaller ? session.calleeId : session.callerId
+      const targetSocketId = fromCaller ? session.calleeSocketId : session.callerSocketId
+      if (data.to && String(data.to) !== peerId) return
+
+      if (event === "call:accept") {
+        if (!fromCallee || session.status !== "ringing") return
+        session.status = "active"
+        clearTimeout(session.timeout)
+      } else if (event !== "call:reject" && event !== "call:end" && session.status !== "active") {
         return
       }
-      
-      const recipientSocket = findSocketByUserId(data.to)
-      if (recipientSocket) {
-        recipientSocket.emit("zego-call-accepted", data)
-      }
-    } catch (error) {
-      console.error("Error in zego-call-accepted event:", error)
-    }
-  })
 
-  socket.on("zego-call-rejected", (data) => {
-    try {
-      if (!data || !data.to) {
-        console.warn("Invalid data in zego-call-rejected:", data)
-        return
+      io.to(targetSocketId).emit(event, { callId: session.callId, ...getPayload(data, user) })
+      if (event === "call:reject" || event === "call:end") {
+        clearTimeout(session.timeout)
+        callSessions.delete(session.callId)
       }
-      
-      const recipientSocket = findSocketByUserId(data.to)
-      if (recipientSocket) {
-        recipientSocket.emit("zego-call-rejected", data)
-      }
-    } catch (error) {
-      console.error("Error in zego-call-rejected event:", error)
-    }
-  })
+    })
+  }
 
-  socket.on("zego-call-ended", (data) => {
-    try {
-      if (!data || !data.to) {
-        console.warn("Invalid data in zego-call-ended:", data)
-        return
-      }
-      
-      const recipientSocket = findSocketByUserId(data.to)
-      if (recipientSocket) {
-        recipientSocket.emit("zego-call-ended", data)
-      }
-    } catch (error) {
-      console.error("Error in zego-call-ended event:", error)
-    }
-  })
-
+  forwardCallEvent("call:accept", () => ({}))
+  forwardCallEvent("call:reject", (data) => ({ reason: data.reason || "declined" }))
+  forwardCallEvent("call:end", (data) => ({ reason: data.reason || "ended" }))
+  forwardCallEvent("call:ready", (_data, sender) => ({ userId: sender._id.toString() }))
+  forwardCallEvent("call:offer", (data) => ({ description: data.description }))
+  forwardCallEvent("call:answer", (data) => ({ description: data.description }))
+  forwardCallEvent("call:ice-candidate", (data) => ({ candidate: data.candidate }))
   socket.on("disconnect", () => {
     try {
       const userId = user._id.toString()
@@ -673,6 +689,13 @@ io.on("connection", (socket) => {
         userSocketIDSets.delete(userId)
         userSocketIDs.delete(userId)
         onlineUsers.delete(userId)
+      }
+      for (const [callId, session] of callSessions) {
+        if (session.callerSocketId !== socket.id && session.calleeSocketId !== socket.id) continue
+        const peerSocketId = session.callerSocketId === socket.id ? session.calleeSocketId : session.callerSocketId
+        clearTimeout(session.timeout)
+        io.to(peerSocketId).emit("call:end", { callId, reason: "disconnected" })
+        callSessions.delete(callId)
       }
       socket.broadcast.emit(ONLINE_USERS, Array.from(onlineUsers))
     } catch (error) {
