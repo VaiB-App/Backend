@@ -606,8 +606,15 @@ io.on("connection", (socket) => {
         members: { $all: [user._id, recipientId] },
         groupChat: false,
       }).select("_id")
-      const recipientSocketId = userSocketIDs.get(recipientId)
-      if (!chat || !recipientSocketId || !io.sockets.sockets.has(recipientSocketId)) {
+      const recipientSocketIds = Array.from(userSocketIDSets.get(recipientId) || [])
+        .filter((socketId) => io.sockets.sockets.has(socketId))
+      // Keep the legacy map as a fallback for sockets registered before the
+      // multi-socket set was populated (for example during a rolling restart).
+      const legacyRecipientSocketId = userSocketIDs.get(recipientId)
+      if (!recipientSocketIds.length && legacyRecipientSocketId && io.sockets.sockets.has(legacyRecipientSocketId)) {
+        recipientSocketIds.push(legacyRecipientSocketId)
+      }
+      if (!chat || !recipientSocketIds.length) {
         socket.emit("call:reject", { callId, reason: "offline" })
         return
       }
@@ -618,7 +625,7 @@ io.on("connection", (socket) => {
         callerId,
         calleeId: recipientId,
         callerSocketId: socket.id,
-        calleeSocketId: recipientSocketId,
+        calleeSocketIds: recipientSocketIds,
         status: "ringing",
         timeout: null,
       }
@@ -627,10 +634,10 @@ io.on("connection", (socket) => {
         if (callSessions.get(callId) !== session || session.status !== "ringing") return
         callSessions.delete(callId)
         io.to(session.callerSocketId).emit("call:end", { callId, reason: "timeout" })
-        io.to(session.calleeSocketId).emit("call:end", { callId, reason: "timeout" })
+        io.to(session.calleeSocketIds).emit("call:end", { callId, reason: "timeout" })
       }, 60000)
 
-      io.to(recipientSocketId).emit("call:request", {
+      io.to(recipientSocketIds).emit("call:request", {
         callId,
         chatId,
         from: callerId,
@@ -649,10 +656,10 @@ io.on("connection", (socket) => {
       if (!session) return
 
       const fromCaller = session.callerSocketId === socket.id
-      const fromCallee = session.calleeSocketId === socket.id
+      const fromCallee = session.calleeSocketIds.includes(socket.id)
       if (!fromCaller && !fromCallee) return
       const peerId = fromCaller ? session.calleeId : session.callerId
-      const targetSocketId = fromCaller ? session.calleeSocketId : session.callerSocketId
+      const targetSocketId = fromCaller ? session.calleeSocketIds : session.callerSocketId
       if (data.to && String(data.to) !== peerId) return
 
       if (event === "call:accept") {
@@ -691,8 +698,8 @@ io.on("connection", (socket) => {
         onlineUsers.delete(userId)
       }
       for (const [callId, session] of callSessions) {
-        if (session.callerSocketId !== socket.id && session.calleeSocketId !== socket.id) continue
-        const peerSocketId = session.callerSocketId === socket.id ? session.calleeSocketId : session.callerSocketId
+        if (session.callerSocketId !== socket.id && !session.calleeSocketIds.includes(socket.id)) continue
+        const peerSocketId = session.callerSocketId === socket.id ? session.calleeSocketIds : session.callerSocketId
         clearTimeout(session.timeout)
         io.to(peerSocketId).emit("call:end", { callId, reason: "disconnected" })
         callSessions.delete(callId)
