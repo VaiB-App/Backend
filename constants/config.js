@@ -1,5 +1,7 @@
+import dotenv from "dotenv"
+dotenv.config();
 const corsOptions = {
-  origin: ["https://frontend-kzov.onrender.com", process.env.CLIENT_URL],
+  origin: [process.env.CLIENT_URL],
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true,
 };

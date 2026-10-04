@@ -33,6 +33,7 @@ import { getSockets } from "./lib/helper.js"
 import { userSocketIDs, userSocketIDSets } from "./lib/socketState.js"
 import { Message } from "./models/message.js"
 import { Chat } from "./models/Chat.js"
+import { User } from "./models/user.js"
 import { corsOptions } from "./constants/config.js"
 import { socketAuthenticator } from "./middlewares/auth.js"
 import { checkSpamContent, analyzeImageForSpam, blockUser, checkUserSpamHistory } from "./middlewares/spamFilter.js"
@@ -606,6 +607,7 @@ io.on("connection", (socket) => {
         members: { $all: [user._id, recipientId] },
         groupChat: false,
       }).select("_id")
+      const callerProfile = await User.findById(callerId).select("name avatar.url")
       const recipientSocketIds = Array.from(userSocketIDSets.get(recipientId) || [])
         .filter((socketId) => io.sockets.sockets.has(socketId))
       // Keep the legacy map as a fallback for sockets registered before the
@@ -614,8 +616,18 @@ io.on("connection", (socket) => {
       if (!recipientSocketIds.length && legacyRecipientSocketId && io.sockets.sockets.has(legacyRecipientSocketId)) {
         recipientSocketIds.push(legacyRecipientSocketId)
       }
-      if (!chat || !recipientSocketIds.length) {
+      if (!chat || !callerProfile || !recipientSocketIds.length) {
         socket.emit("call:reject", { callId, reason: "offline" })
+        if (chat) {
+          void saveCallHistory({
+            callId,
+            chatId,
+            callerId,
+            callerName: user.name,
+            calleeId: recipientId,
+            isVideo: Boolean(data.isVideo),
+          }, "missed")
+        }
         return
       }
 
@@ -623,10 +635,13 @@ io.on("connection", (socket) => {
         callId,
         chatId,
         callerId,
+        callerName: user.name,
         calleeId: recipientId,
         callerSocketId: socket.id,
         calleeSocketIds: recipientSocketIds,
         status: "ringing",
+        isVideo: Boolean(data.isVideo),
+        connectedAt: null,
         timeout: null,
       }
       callSessions.set(callId, session)
@@ -635,13 +650,15 @@ io.on("connection", (socket) => {
         callSessions.delete(callId)
         io.to(session.callerSocketId).emit("call:end", { callId, reason: "timeout" })
         io.to(session.calleeSocketIds).emit("call:end", { callId, reason: "timeout" })
+        void saveCallHistory(session, "missed")
       }, 60000)
 
       io.to(recipientSocketIds).emit("call:request", {
         callId,
         chatId,
         from: callerId,
-        fromName: user.name,
+        fromName: callerProfile.name,
+        fromAvatar: callerProfile.avatar?.url || "",
         isVideo: Boolean(data.isVideo),
       })
     } catch (error) {
@@ -649,6 +666,32 @@ io.on("connection", (socket) => {
       socket.emit("call:reject", { callId, reason: "unavailable" })
     }
   })
+
+  const saveCallHistory = async (session, status, durationSeconds = 0) => {
+    try {
+      const callMessage = await Message.create({
+        type: "call",
+        call: { isVideo: session.isVideo, status, durationSeconds },
+        content: "",
+        sender: session.callerId,
+        chat: session.chatId,
+      })
+      const messageForRealTime = {
+        _id: callMessage._id,
+        type: "call",
+        call: callMessage.call,
+        content: "",
+        sender: { _id: session.callerId, name: session.callerName || "User" },
+        chat: session.chatId,
+        createdAt: callMessage.createdAt,
+      }
+      const membersSocket = getSockets([session.callerId, session.calleeId])
+      io.to(membersSocket).emit(NEW_MESSAGE, { chatId: session.chatId, message: messageForRealTime })
+      io.to(membersSocket).emit(NEW_MESSAGE_ALERT, { chatId: session.chatId })
+    } catch (error) {
+      console.error("Could not save call history", error)
+    }
+  }
 
   const forwardCallEvent = (event, getPayload) => {
     socket.on(event, (data = {}) => {
@@ -665,6 +708,7 @@ io.on("connection", (socket) => {
       if (event === "call:accept") {
         if (!fromCallee || session.status !== "ringing") return
         session.status = "active"
+        session.connectedAt = Date.now()
         clearTimeout(session.timeout)
       } else if (event !== "call:reject" && event !== "call:end" && session.status !== "active") {
         return
@@ -674,6 +718,11 @@ io.on("connection", (socket) => {
       if (event === "call:reject" || event === "call:end") {
         clearTimeout(session.timeout)
         callSessions.delete(session.callId)
+        const status = event === "call:reject" ? "missed" : (session.status === "active" ? "completed" : "missed")
+        const durationSeconds = session.status === "active" && session.connectedAt
+          ? Math.max(0, Math.round((Date.now() - session.connectedAt) / 1000))
+          : 0
+        void saveCallHistory(session, status, durationSeconds)
       }
     })
   }
@@ -703,6 +752,11 @@ io.on("connection", (socket) => {
         clearTimeout(session.timeout)
         io.to(peerSocketId).emit("call:end", { callId, reason: "disconnected" })
         callSessions.delete(callId)
+        const status = session.status === "active" ? "completed" : "missed"
+        const durationSeconds = session.status === "active" && session.connectedAt
+          ? Math.max(0, Math.round((Date.now() - session.connectedAt) / 1000))
+          : 0
+        void saveCallHistory(session, status, durationSeconds)
       }
       socket.broadcast.emit(ONLINE_USERS, Array.from(onlineUsers))
     } catch (error) {

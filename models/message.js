@@ -3,6 +3,16 @@ import mongoose, { Schema, model, Types } from "mongoose";
 const schema = new Schema(
   {
     content: String,
+    type: {
+      type: String,
+      enum: ["text", "call"],
+      default: "text",
+    },
+    call: {
+      isVideo: Boolean,
+      status: String,
+      durationSeconds: Number,
+    },
     
     attachments: [
       {
