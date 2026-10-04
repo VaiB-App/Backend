@@ -32,7 +32,7 @@ import {
 import { getSockets } from "./lib/helper.js"
 import { userSocketIDs, userSocketIDSets } from "./lib/socketState.js"
 import { Message } from "./models/message.js"
-import { Chat } from "./models/chat.js"
+import { Chat } from "./models/Chat.js"
 import { corsOptions } from "./constants/config.js"
 import { socketAuthenticator } from "./middlewares/auth.js"
 import { checkSpamContent, analyzeImageForSpam, blockUser, checkUserSpamHistory } from "./middlewares/spamFilter.js"
