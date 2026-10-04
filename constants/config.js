@@ -1,9 +1,5 @@
 const corsOptions = {
-  origin: [
-    "https://frontend-hazel-rho-51.vercel.app",
-    
-    process.env.CLIENT_URL,
-  ],
+  origin: ["https://frontend-kzov.onrender.com", process.env.CLIENT_URL],
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true,
 };
