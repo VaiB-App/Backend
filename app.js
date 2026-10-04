@@ -616,6 +616,16 @@ io.on("connection", (socket) => {
       }
       if (!chat || !recipientSocketIds.length) {
         socket.emit("call:reject", { callId, reason: "offline" })
+        if (chat) {
+          void saveCallHistory({
+            callId,
+            chatId,
+            callerId,
+            callerName: user.name,
+            calleeId: recipientId,
+            isVideo: Boolean(data.isVideo),
+          }, "missed")
+        }
         return
       }
 
@@ -623,10 +633,13 @@ io.on("connection", (socket) => {
         callId,
         chatId,
         callerId,
+        callerName: user.name,
         calleeId: recipientId,
         callerSocketId: socket.id,
         calleeSocketIds: recipientSocketIds,
         status: "ringing",
+        isVideo: Boolean(data.isVideo),
+        connectedAt: null,
         timeout: null,
       }
       callSessions.set(callId, session)
@@ -635,6 +648,7 @@ io.on("connection", (socket) => {
         callSessions.delete(callId)
         io.to(session.callerSocketId).emit("call:end", { callId, reason: "timeout" })
         io.to(session.calleeSocketIds).emit("call:end", { callId, reason: "timeout" })
+        void saveCallHistory(session, "missed")
       }, 60000)
 
       io.to(recipientSocketIds).emit("call:request", {
@@ -649,6 +663,32 @@ io.on("connection", (socket) => {
       socket.emit("call:reject", { callId, reason: "unavailable" })
     }
   })
+
+  const saveCallHistory = async (session, status, durationSeconds = 0) => {
+    try {
+      const callMessage = await Message.create({
+        type: "call",
+        call: { isVideo: session.isVideo, status, durationSeconds },
+        content: "",
+        sender: session.callerId,
+        chat: session.chatId,
+      })
+      const messageForRealTime = {
+        _id: callMessage._id,
+        type: "call",
+        call: callMessage.call,
+        content: "",
+        sender: { _id: session.callerId, name: session.callerName || "User" },
+        chat: session.chatId,
+        createdAt: callMessage.createdAt,
+      }
+      const membersSocket = getSockets([session.callerId, session.calleeId])
+      io.to(membersSocket).emit(NEW_MESSAGE, { chatId: session.chatId, message: messageForRealTime })
+      io.to(membersSocket).emit(NEW_MESSAGE_ALERT, { chatId: session.chatId })
+    } catch (error) {
+      console.error("Could not save call history", error)
+    }
+  }
 
   const forwardCallEvent = (event, getPayload) => {
     socket.on(event, (data = {}) => {
@@ -665,6 +705,7 @@ io.on("connection", (socket) => {
       if (event === "call:accept") {
         if (!fromCallee || session.status !== "ringing") return
         session.status = "active"
+        session.connectedAt = Date.now()
         clearTimeout(session.timeout)
       } else if (event !== "call:reject" && event !== "call:end" && session.status !== "active") {
         return
@@ -674,6 +715,11 @@ io.on("connection", (socket) => {
       if (event === "call:reject" || event === "call:end") {
         clearTimeout(session.timeout)
         callSessions.delete(session.callId)
+        const status = event === "call:reject" ? "missed" : (session.status === "active" ? "completed" : "missed")
+        const durationSeconds = session.status === "active" && session.connectedAt
+          ? Math.max(0, Math.round((Date.now() - session.connectedAt) / 1000))
+          : 0
+        void saveCallHistory(session, status, durationSeconds)
       }
     })
   }
@@ -703,6 +749,11 @@ io.on("connection", (socket) => {
         clearTimeout(session.timeout)
         io.to(peerSocketId).emit("call:end", { callId, reason: "disconnected" })
         callSessions.delete(callId)
+        const status = session.status === "active" ? "completed" : "missed"
+        const durationSeconds = session.status === "active" && session.connectedAt
+          ? Math.max(0, Math.round((Date.now() - session.connectedAt) / 1000))
+          : 0
+        void saveCallHistory(session, status, durationSeconds)
       }
       socket.broadcast.emit(ONLINE_USERS, Array.from(onlineUsers))
     } catch (error) {
