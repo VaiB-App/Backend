@@ -33,6 +33,7 @@ import { getSockets } from "./lib/helper.js"
 import { userSocketIDs, userSocketIDSets } from "./lib/socketState.js"
 import { Message } from "./models/message.js"
 import { Chat } from "./models/Chat.js"
+import { User } from "./models/user.js"
 import { corsOptions } from "./constants/config.js"
 import { socketAuthenticator } from "./middlewares/auth.js"
 import { checkSpamContent, analyzeImageForSpam, blockUser, checkUserSpamHistory } from "./middlewares/spamFilter.js"
@@ -606,6 +607,7 @@ io.on("connection", (socket) => {
         members: { $all: [user._id, recipientId] },
         groupChat: false,
       }).select("_id")
+      const callerProfile = await User.findById(callerId).select("name avatar.url")
       const recipientSocketIds = Array.from(userSocketIDSets.get(recipientId) || [])
         .filter((socketId) => io.sockets.sockets.has(socketId))
       // Keep the legacy map as a fallback for sockets registered before the
@@ -614,7 +616,7 @@ io.on("connection", (socket) => {
       if (!recipientSocketIds.length && legacyRecipientSocketId && io.sockets.sockets.has(legacyRecipientSocketId)) {
         recipientSocketIds.push(legacyRecipientSocketId)
       }
-      if (!chat || !recipientSocketIds.length) {
+      if (!chat || !callerProfile || !recipientSocketIds.length) {
         socket.emit("call:reject", { callId, reason: "offline" })
         if (chat) {
           void saveCallHistory({
@@ -655,7 +657,8 @@ io.on("connection", (socket) => {
         callId,
         chatId,
         from: callerId,
-        fromName: user.name,
+        fromName: callerProfile.name,
+        fromAvatar: callerProfile.avatar?.url || "",
         isVideo: Boolean(data.isVideo),
       })
     } catch (error) {
